@@ -1,20 +1,100 @@
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 > nul
-set "SOURCE=E:\Downloads\Torrent\anime\input"
-set "DESTINATION=E:\Downloads\Torrent\anime\output"
 
-:: HYBRID PERFORMANCE CONTROL:
-set "THREADS=6"
+set "CONFIG_FILE=%~dp0config.cfg"
+set "LOG_FILE=%~dp0log.txt"
 
-:: MAXIMUM AUTO-CORRECTION ATTEMPTS IF THE OUTPUT FAILS
-set "MAX_ATTEMPTS=3"
+:: 1. AUTO-CREATION OF CONFIG.CFG IF MISSING
+if not exist "%CONFIG_FILE%" (
+    :: Get script current directory and strip trailing backslash safely
+    set "CURRENT_RUN_DIR=%~dp0"
+    if "!CURRENT_RUN_DIR:~-1!"=="\" set "CURRENT_RUN_DIR=!CURRENT_RUN_DIR:~0,-1!"
+
+    (
+        echo :: ===================================================
+        echo :: USER CONFIGURATION FILE
+        echo :: ===================================================
+        echo.
+        echo :: Absolute path for raw source media files
+        echo SOURCE=!CURRENT_RUN_DIR!
+        echo.
+        echo :: Absolute path for processed 720p outputs
+        echo DESTINATION=!CURRENT_RUN_DIR!
+        echo.
+        echo :: Maximum CPU threads allocated to FFmpeg
+        echo THREADS=6
+        echo.
+        echo :: Maximum auto-correction attempts per file
+        echo MAX_ATTEMPTS=3
+    ) > "%CONFIG_FILE%"
+
+    echo ===================================================
+    echo  [NOTICE] config.cfg was missing and has been created.
+    echo  Default paths point to the script's current folder.
+    echo ===================================================
+    echo [%time%] NOTICE: config.cfg was automatically generated pointing to execution folder. >> "%LOG_FILE%"
+)
+
+:: 2. LOAD CONFIGURATION VIA SAFE LINE-BY-LINE PARSING
+for /f "usebackq tokens=1* delims=" %%A in ("%CONFIG_FILE%") do (
+    set "LINE=%%A"
+    :: Ignore comments starting with ';' or ':' or '#'
+    if not "!LINE:~0,1!"==":" if not "!LINE:~0,1!"==";" if not "!LINE:~0,1!"=="#" (
+        for /f "tokens=1,2 delims==" %%B in ("%%A") do (
+            set "KEY=%%B"
+            set "VALUE=%%C"
+            :: Remove trailing/leading spaces if any
+            for /f "tokens=*" %%D in ("!VALUE!") do set "!KEY!=%%D"
+        )
+    )
+)
+
+:: 3. CONFIGURATION VALIDATION LAYER
+set "CONFIG_ERRORS=0"
+
+if "%SOURCE%"=="" (
+    echo [VALIDATION ERROR] SOURCE variable cannot be empty in config.cfg.
+    set "CONFIG_ERRORS=1"
+) else if not exist "%SOURCE%" (
+    echo [VALIDATION ERROR] SOURCE directory does not exist: "%SOURCE%"
+    set "CONFIG_ERRORS=1"
+)
+
+if "%DESTINATION%"=="" (
+    echo [VALIDATION ERROR] DESTINATION variable cannot be empty in config.cfg.
+    set "CONFIG_ERRORS=1"
+) else if not exist "%DESTINATION%" (
+    echo [VALIDATION ERROR] DESTINATION directory does not exist: "%DESTINATION%"
+    set "CONFIG_ERRORS=1"
+)
+
+:: Numeric validation using a Batch arithmetic trick
+set /a TEST_THREADS=THREADS 2>nul
+if !TEST_THREADS! leq 0 (
+    echo [VALIDATION ERROR] THREADS must be a valid number greater than 0. Current: "%THREADS%"
+    set "CONFIG_ERRORS=1"
+)
+
+set /a TEST_ATTEMPTS=MAX_ATTEMPTS 2>nul
+if !TEST_ATTEMPTS! leq 0 (
+    echo [VALIDATION ERROR] MAX_ATTEMPTS must be a valid number greater than 0. Current: "%MAX_ATTEMPTS%"
+    set "CONFIG_ERRORS=1"
+)
+
+:: If validation failed, log it and halt execution
+if "%CONFIG_ERRORS%"=="1" (
+    echo =================================================== >> "%LOG_FILE%"
+    echo [%time%] CRITICAL: Script execution halted due to config.cfg validation errors. >> "%LOG_FILE%"
+    echo =================================================== >> "%LOG_FILE%"
+    echo.
+    echo Script halted. Please fix the errors in config.cfg above.
+    pause
+    exit /b
+)
 
 :: Variable to monitor if definitive errors occurred during the process
 set "HAS_ERROR=0"
-
-:: Defines the log file path in the same directory as the .bat file
-set "LOG_FILE=%~dp0log.txt"
 
 echo =================================================== >> "%LOG_FILE%"
 echo SESSION STARTED ON: %date% AT !time! >> "%LOG_FILE%"
@@ -39,7 +119,7 @@ if "%HAS_ERROR%"=="1" (
     echo [!time!] SESSION FINISHED WITH DEFINITIVE ERRORS >> "%LOG_FILE%"
     echo ===================================================
     echo   ATTENTION: Unrecoverable errors occurred during the process!
-    echo   Check the files that failed after 3 attempts.
+    echo   Check the files that failed after %MAX_ATTEMPTS% attempts.
     echo   See log.txt for details.
     echo ===================================================
     pause

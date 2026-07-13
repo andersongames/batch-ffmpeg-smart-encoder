@@ -1,0 +1,15 @@
+:: ===================================================
+:: USER CONFIGURATION FILE
+:: ===================================================
+
+:: Absolute path for raw source media files
+SOURCE=C:\batch-ffmpeg-smart-encoder
+
+:: Absolute path for processed 720p outputs
+DESTINATION=C:\batch-ffmpeg-smart-encoder
+
+:: Maximum CPU threads allocated to FFmpeg
+THREADS=0
+
+:: Maximum auto-correction attempts per file
+MAX_ATTEMPTS=3
