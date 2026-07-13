@@ -27,6 +27,9 @@ if not exist "%CONFIG_FILE%" (
         echo.
         echo :: Maximum auto-correction attempts per file
         echo MAX_ATTEMPTS=3
+        echo.
+        echo :: Allowed duration difference in seconds between input and output files
+        echo TOLERANCE=2
     ) > "%CONFIG_FILE%"
 
     echo ===================================================
@@ -79,6 +82,12 @@ if !TEST_THREADS! leq 0 (
 set /a TEST_ATTEMPTS=MAX_ATTEMPTS 2>nul
 if !TEST_ATTEMPTS! leq 0 (
     echo [VALIDATION ERROR] MAX_ATTEMPTS must be a valid number greater than 0. Current: "%MAX_ATTEMPTS%"
+    set "CONFIG_ERRORS=1"
+)
+
+set /a TEST_TOLERANCE=TOLERANCE 2>nul
+if !TEST_TOLERANCE! lss 0 (
+    echo [VALIDATION ERROR] TOLERANCE must be a valid non-negative number of 0 or higher. Current: "%TOLERANCE%"
     set "CONFIG_ERRORS=1"
 )
 
@@ -248,11 +257,11 @@ if "%CURRENT_HEIGHT%"=="720" (
     set /a DIFF=ORIG_DUR_INT - CURRENT_DUR_INT
     if !DIFF! lss 0 set /a DIFF=-DIFF
 
-    :: Accepts the file as intact if the difference is at most 2 seconds.
-    if !DIFF! leq 2 (
+    :: Accepts the file as intact if the difference is at most the configured tolerance limit.
+    if !DIFF! leq !TOLERANCE! (
         set "IS_INTEGRAL=1"
     ) else (
-        echo   -^> [VALIDATION FAILED] Duration mismatch. Original: !ORIG_DUR_INT!s, Processed: !CURRENT_DUR_INT!s ^(Diff: !DIFF!s^)
+        echo   -^> [VALIDATION FAILED] Duration mismatch. Original: !ORIG_DUR_INT!s, Processed: !CURRENT_DUR_INT!s - Diff: !DIFF!s, Allowed Tolerance: !TOLERANCE!s
     )
 )
 exit /b

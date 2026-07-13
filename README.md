@@ -37,6 +37,7 @@ Open `config.cfg` in any text editor to modify your settings. The script feature
 | `DESTINATION` | *Script execution folder* | The absolute directory path where the processed 720p files will be deployed. |
 | `THREADS` | `6` | Limits the maximum CPU threads allocated to FFmpeg (prevents 100% CPU system freezes). |
 | `MAX_ATTEMPTS` | `3` | Number of sequential encoding retries allowed per file before marking it as a definitive failure and moving to the next block. |
+| `TOLERANCE` | `2` | Maximum allowed difference (in seconds) between the source video and the encoded file. This compensates for slight timestamp offsets introduced by audio streams or custom containers without triggering a false-positive failure loop. |
 
 ---
 

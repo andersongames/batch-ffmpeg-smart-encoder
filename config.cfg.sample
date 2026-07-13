@@ -13,3 +13,6 @@ THREADS=0
 
 :: Maximum auto-correction attempts per file
 MAX_ATTEMPTS=3
+
+:: Allowed duration difference in seconds between input and output files
+TOLERANCE=2
