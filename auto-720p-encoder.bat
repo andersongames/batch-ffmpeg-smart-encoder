@@ -136,27 +136,30 @@ if "%HAS_ERROR%"=="1" (
 :PROCESS_FILE
 setlocal
 set "ABSOLUTE_PATH=%~1"
-
-echo %~nx1
-
+set "FILE_NAME=%~nx1"
+set "FILE_BASE_NAME=%~n1"
+set "FILE_EXT=%~x1"
 set "CURRENT_DIR=%~dp1"
 
-:: Robust normalization of paths and subfolders
-set "SUBFOLDER=!CURRENT_DIR:%SOURCE%=!"
-set "TARGET_DIR=%DESTINATION%!SUBFOLDER!"
-
-:: Ensures it ends with a backslash properly
+:: Safely resolves the relative output path using local variables.
+set "SUBFOLDER=%CURRENT_DIR%"
+set "SUBFOLDER=!SUBFOLDER:%SOURCE%=!"
+set "TARGET_DIR=%DESTINATION%%SUBFOLDER%"
 if not "!TARGET_DIR:~-1!"=="\" set "TARGET_DIR=!TARGET_DIR!\"
-
-set "FINAL_FILE=!TARGET_DIR!%~n1_720p%~x1"
+set "FINAL_FILE=!TARGET_DIR!!FILE_BASE_NAME!_720p!FILE_EXT!"
 
 if not exist "!TARGET_DIR!" mkdir "!TARGET_DIR!"
 
-:: 1. CAPTURE THE ORIGINAL FILE DURATION (INPUT) VIA FFPROBE
+echo !FILE_NAME!
+
+:: 1. SAFE DURATION CAPTURE (Uses "-v quiet" to avoid log clutter and dangerous characters in the console)
 set "ORIGINAL_DURATION=0"
-for /f "tokens=*" %%a in ('ffprobe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%ABSOLUTE_PATH%" 2^>nul') do (
+for /f "tokens=*" %%a in ('ffprobe -v quiet -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%ABSOLUTE_PATH%"') do (
     set "ORIGINAL_DURATION=%%a"
 )
+
+:: If ffprobe fails completely to read the original file
+if "%ORIGINAL_DURATION%"=="" set "ORIGINAL_DURATION=0"
 
 :: 2. PRE-VALIDATION
 if exist "!FINAL_FILE!" (
@@ -172,14 +175,14 @@ if exist "!FINAL_FILE!" (
     )
 )
 
-:: 3. ATTEMPTS LOOP AND IMMEDIATE AUTO-CORRECTION
+:: 3. LOOP DE TENTATIVAS
 set "ATTEMPT=1"
 
 :CONVERSION_LOOP
-echo   -^> Attempt %ATTEMPT% of %MAX_ATTEMPTS%...
-echo [!time!]   -^> Starting Attempt %ATTEMPT% via FFmpeg... >> "%LOG_FILE%"
+echo   -^> Attempt !ATTEMPT! of %MAX_ATTEMPTS%...
+echo [!time!]   -^> Starting Attempt !ATTEMPT! via FFmpeg... >> "%LOG_FILE%"
 
-:: Direct and Safe Execution (without unstable 'start')
+:: Run FFmpeg directly without exposing the line to expansion issues
 ffmpeg -i "%ABSOLUTE_PATH%" -threads %THREADS% -map 0 -vf scale=-1:720 -c:v libx264 -crf 23 -c:a aac -c:s copy -strict -2 "!FINAL_FILE!" -y
 set "FFMPEG_EXIT_CODE=%errorlevel%"
 
@@ -197,20 +200,21 @@ if "!IS_INTEGRAL!"=="1" (
     goto :END_PROCESS_FILE
 )
 
-:: If it failed, clean up the residual file
+:: If validation fails, deletes the generated corrupted file.
 if exist "!FINAL_FILE!" del /f /q "!FINAL_FILE!" >nul 2>&1
 
-if %ATTEMPT% ltr %MAX_ATTEMPTS% (
+if !ATTEMPT! lss %MAX_ATTEMPTS% (
     set /a ATTEMPT+=1
     goto :CONVERSION_LOOP
 )
 
 echo   -^> [DEFINITIVE FAILURE] File could not be fixed after %MAX_ATTEMPTS% attempts.
 echo [!time!]   -^> CRITICAL: File failed in all %MAX_ATTEMPTS% attempts. >> "%LOG_FILE%"
-set "HAS_ERROR=1"
+set "LOCAL_HAS_ERROR=1"
 
 :END_PROCESS_FILE
-endlocal & set "HAS_ERROR=%HAS_ERROR%"
+:: Safely propagates the global error signal out of the local scope.
+endlocal & if "%LOCAL_HAS_ERROR%"=="1" (set "HAS_ERROR=1") else (set "HAS_ERROR=%HAS_ERROR%")
 exit /b
 
 
@@ -220,22 +224,35 @@ set "ORIG_DUR=%~2"
 set "IS_INTEGRAL=0"
 
 set "CURRENT_HEIGHT=0"
-for /f "tokens=*" %%b in ('ffprobe -v error -select_streams v:0 -show_entries stream^=height -of default^=noprint_wrappers^=1:nokey^=1 "%TARGET%" 2^>nul') do (
+:: Silently collects height to avoid freezes.
+for /f "tokens=*" %%b in ('ffprobe -v quiet -select_streams v:0 -show_entries stream^=height -of default^=noprint_wrappers^=1:nokey^=1 "%TARGET%"') do (
     set "CURRENT_HEIGHT=%%b"
 )
 
 set "CURRENT_DURATION=0"
-for /f "tokens=*" %%c in ('ffprobe -v error -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%TARGET%" 2^>nul') do (
+:: Silently collects duration data
+for /f "tokens=*" %%c in ('ffprobe -v quiet -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%TARGET%"') do (
     set "CURRENT_DURATION=%%c"
 )
 
 if "%CURRENT_HEIGHT%"=="720" (
+    :: Extracts the integer part of the seconds.
     for /f "delims=." %%d in ("%ORIG_DUR%") do set "ORIG_DUR_INT=%%d"
     for /f "delims=." %%e in ("%CURRENT_DURATION%") do set "CURRENT_DUR_INT=%%e"
     
-    if "!ORIG_DUR_INT!"=="!CURRENT_DUR_INT!" (
+    :: If the durations come back empty for any reason, assume it failed.
+    if "!ORIG_DUR_INT!"=="" exit /b
+    if "!CURRENT_DUR_INT!"=="" exit /b
+
+    :: Calculates the absolute difference between the original and converted seconds.
+    set /a DIFF=ORIG_DUR_INT - CURRENT_DUR_INT
+    if !DIFF! lss 0 set /a DIFF=-DIFF
+
+    :: Accepts the file as intact if the difference is at most 2 seconds.
+    if !DIFF! leq 2 (
         set "IS_INTEGRAL=1"
-        exit /b
+    ) else (
+        echo   -^> [VALIDATION FAILED] Duration mismatch. Original: !ORIG_DUR_INT!s, Processed: !CURRENT_DUR_INT!s ^(Diff: !DIFF!s^)
     )
 )
 exit /b
