@@ -41,17 +41,18 @@ if "%TEM_ERRO%"=="1" (
 )
 
 :PROCESSAR
+setlocal
 set "CAMINHO_ABSOLUTO=%~1"
-setlocal enabledelayedexpansion
 
 echo %~nx1
 
 set "DIRETORIO_ATUAL=%~dp1"
-set "SUBPASTA=!DIRETORIO_ATUAL:%ORIGEM%=!"
-set "PASTA_DESTINO=%DESTINO%!SUBPASTA!"
-set "ARQUIVO_FINAL=!PASTA_DESTINO!%~n1_720p%~x1"
+:: Usando sintaxe tradicional para evitar conflitos de expansao tardia no loop principal
+call set "SUBPASTA=%%DIRETORIO_ATUAL:%ORIGEM%=%%"
+set "PASTA_DESTINO=%DESTINO%%SUBPASTA%"
+set "ARQUIVO_FINAL=%PASTA_DESTINO%%~n1_720p%~x1"
 
-if not exist "!PASTA_DESTINO!" mkdir "!PASTA_DESTINO!"
+if not exist "%PASTA_DESTINO%" mkdir "%PASTA_DESTINO%"
 
 :: 1. CAPTURA A DURAÇÃO DO ARQUIVO ORIGINAL (INPUT) VIA FFPROBE
 set "DURACAO_ORIGINAL=0"
@@ -59,16 +60,19 @@ for /f "tokens=*" %%a in ('ffprobe -v error -show_entries format^=duration -of d
     set "DURACAO_ORIGINAL=%%a"
 )
 
-:: 2. VALIDAÇÃO PRÉVIA: O arquivo já existe e está íntegro no destino?
-if exist "!ARQUIVO_FINAL!" (
-    call :VALIDAR_INTEGRIDADE "!ARQUIVO_FINAL!" "%DURACAO_ORIGINAL%"
+:: 2. VALIDAÇÃO PRÉVIA
+if exist "%ARQUIVO_FINAL%" (
+    call :VALIDAR_INTEGRIDADE "%ARQUIVO_FINAL%" "%DURACAO_ORIGINAL%"
+    setlocal enabledelayedexpansion
     if "!INTEGRO!"=="1" (
         echo   -^> [PULADO] Arquivo ja convertido e integro no destino.
         endlocal
+        endlocal
         exit /b
     ) else (
+        endlocal
         echo   -^> [AVISO] Arquivo existente falhou na validacao previa. Redundancia ativada...
-        del /f /q "!ARQUIVO_FINAL!" >nul 2>&1
+        del /f /q "%ARQUIVO_FINAL%" >nul 2>&1
     )
 )
 
@@ -76,38 +80,37 @@ if exist "!ARQUIVO_FINAL!" (
 set "TENTATIVA=1"
 
 :CONVERTER_LOOP
-echo   -^> Tentativa !TENTATIVA! de %MAX_TENTATIVAS%...
+echo   -^> Tentativa %TENTATIVA% de %MAX_TENTATIVAS%...
 
-:: Correção da captura real do erro: executamos um cmd interno sob o 'start /wait' que repassa o errorlevel real do ffmpeg
-start /low /wait "" cmd /c "ffmpeg -i "%CAMINHO_ABSOLUTO%" -threads %THREADS% -map 0 -vf scale=-1:720 -c:v libx264 -crf 23 -c:a aac -c:s copy -strict -2 "!ARQUIVO_FINAL!" -y && exit 0 || exit 1"
+:: Proteção contra fechamento de janela: Executa o ffmpeg em background de forma isolada e segura
+start /low /wait "" ffmpeg -i "%CAMINHO_ABSOLUTO%" -threads %THREADS% -map 0 -vf scale=-1:720 -c:v libx264 -crf 23 -c:a aac -c:s copy -strict -2 "%ARQUIVO_FINAL%" -y
 set "FFMPEG_EXIT_CODE=%errorlevel%"
 
-:: Verifica se o processo fechou com erro de execução bruto
-if !FFMPEG_EXIT_CODE! gtr 0 (
+if %FFMPEG_EXIT_CODE% gtr 0 (
     echo   -^> [ERRO] FFmpeg reportou falha critica na execucao.
     set "INTEGRO=0"
 ) else (
-    :: Pós-Validação imediata se o processo finalizou sem erros aparentes
-    call :VALIDAR_INTEGRIDADE "!ARQUIVO_FINAL!" "%DURACAO_ORIGINAL%"
+    call :VALIDAR_INTEGRIDADE "%ARQUIVO_FINAL%" "%DURACAO_ORIGINAL%"
 )
 
-:: Se passou na validação, finaliza com sucesso e vai para o próximo arquivo da fila principal
+setlocal enabledelayedexpansion
 if "!INTEGRO!"=="1" (
     echo   -^> [SUCESSO] Confirmado e validado em 720p.
     endlocal
+    endlocal
     exit /b
 )
+endlocal
 
-:: Se falhou, apaga o arquivo corrompido para não deixar lixo residual
-if exist "!ARQUIVO_FINAL!" del /f /q "!ARQUIVO_FINAL!" >nul 2>&1
+:: Se falhou, limpa o rastro
+if exist "%ARQUIVO_FINAL%" del /f /q "%ARQUIVO_FINAL%" >nul 2>&1
 
-:: Lógica do limite de tentativas
-if !TENTATIVA! ltr %MAX_TENTATIVAS% (
+:: Lógica do limite de tentativas usando variáveis puras (sem expansão perigosa)
+if %TENTATIVA% ltr %MAX_TENTATIVAS% (
     set /a TENTATIVA+=1
     goto :CONVERTER_LOOP
 )
 
-:: Se estourou as 3 tentativas e continuou quebrando:
 echo   -^> [FALHA DEFINITIVA] Arquivo nao pôde ser corrigido apos %MAX_TENTATIVAS% tentativas.
 endlocal
 set "TEM_ERRO=1"
@@ -115,7 +118,6 @@ exit /b
 
 
 :VALIDAR_INTEGRIDADE
-:: Subrotina de validação via FFprobe (Mede Altura e Duração)
 set "ALVO=%~1"
 set "DUR_ORIG=%~2"
 set "INTEGRO=0"
@@ -130,14 +132,16 @@ for /f "tokens=*" %%c in ('ffprobe -v error -show_entries format^=duration -of d
     set "DURACAO_ATUAL=%%c"
 )
 
-:: Compara se a altura é estritamente 720p e se as durações batem (considerando dízimas do ffmpeg)
-if "!ALTURA_ATUAL!"=="720" (
-    :: Transforma em inteiro básico para evitar problemas com pontos flutuantes no CMD do Windows
-    for /f "delims=." %%d in ("!DUR_ORIG!") do set "DUR_ORIG_INT=%%d"
-    for /f "delims=." %%e in ("!DURACAO_ATUAL!") do set "DUR_ATUAL_INT=%%e"
+if "%ALTURA_ATUAL%"=="720" (
+    for /f "delims=." %%d in ("%DUR_ORIG%") do set "DUR_ORIG_INT=%%d"
+    for /f "delims=." %%e in ("%DURACAO_ATUAL%") do set "DUR_ATUAL_INT=%%e"
     
+    setlocal enabledelayedexpansion
     if "!DUR_ORIG_INT!"=="!DUR_ATUAL_INT!" (
+        endlocal
         set "INTEGRO=1"
+        exit /b
     )
+    endlocal
 )
 exit /b
