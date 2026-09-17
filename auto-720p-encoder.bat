@@ -161,7 +161,8 @@ if not exist "!TARGET_DIR!" mkdir "!TARGET_DIR!"
 
 echo !FILE_NAME!
 
-:: 1. SAFE DURATION CAPTURE (Uses "-v quiet" to avoid log clutter and dangerous characters in the console)
+:: 1. VALIDATE ORIGINAL FILE
+:: SAFE DURATION CAPTURE (Uses "-v quiet" to avoid log clutter and dangerous characters in the console)
 set "ORIGINAL_DURATION=0"
 for /f "tokens=*" %%a in ('ffprobe -v quiet -show_entries format^=duration -of default^=noprint_wrappers^=1:nokey^=1 "%ABSOLUTE_PATH%"') do (
     set "ORIGINAL_DURATION=%%a"
@@ -169,6 +170,18 @@ for /f "tokens=*" %%a in ('ffprobe -v quiet -show_entries format^=duration -of d
 
 :: If ffprobe fails completely to read the original file
 if "%ORIGINAL_DURATION%"=="" set "ORIGINAL_DURATION=0"
+
+:: Retrieve original video height to check if conversion is needed
+set "ORIGINAL_HEIGHT=0"
+for /f "tokens=*" %%b in ('ffprobe -v quiet -select_streams v:0 -show_entries stream^=height -of default^=noprint_wrappers^=1:nokey^=1 "%ABSOLUTE_PATH%"') do (
+    set "ORIGINAL_HEIGHT=%%b"
+)
+
+:: Skip conversion if video height is less than or equal to 720
+if "%ORIGINAL_HEIGHT%"=="720" (
+    echo [!time!]   -^> SKIPPED: Resolution is !ORIGINAL_HEIGHT!p, no conversion needed. >> "%LOG_FILE%"
+    goto :END_PROCESS_FILE
+)
 
 :: 2. PRE-VALIDATION
 if exist "!FINAL_FILE!" (
