@@ -1,0 +1,199 @@
+ESPECIFICAÇÃO TÉCNICA DA AUTOMAÇÃO
+
+ENCODER INTELIGENTE FFMPEG
+
+///////////////////////////////////////
+OBJETIVO GERAL
+///////////////////////////////////////
+
+Criar um script em lote (bash - sh) capaz de percorrer recursivamente um diretório e subdiretórios para converter arquivos de video. O script deve converter condicionalmente os videos para a resolução especificada e mantendo a proporção da altura da resolução, a extensão do arquivo e todas as faixas de audio e legenda intactas, com registro completo em arquivo de log.
+
+///////////////////////////////////////
+CONFIGURAÇÕES E ARQUIVO CONFIG.CFG
+///////////////////////////////////////
+
+O script deve ler o arquivo "config.cfg" no mesmo diretório de sua execução.
+Caso o arquivo ou uma variável não exista, deve ser gerado automaticamente com os valores padrão.
+
+Parâmetros do config.cfg:
+
+SOURCE_DIR        : Diretório raiz para varredura.
+[Padrão: Mesma pasta do script]
+
+DESTINATION_DIR   : Diretório de saída, onde os videos convertidos serão salvos.
+[Padrão: [Mesma pasta do script]/encode-output]
+
+REPLICATE_SRC_DIR : Replica ou não a mesma estrutura de pastas do diretório de origem.
+[Padrão: true]
+
+EXTENSIONS        : Lista de extensões a processar, separadas por vírgulas (mp4, mkv).
+[Padrão: Vazio / Todas as extensões]
+
+RESOLUTION_WIDTH  : Largura da resolução alvo para qual os videos serão checados e convertidos.
+[Padrão: 720]
+
+MAX_THREADS       : Limita o número máximo de threads de CPU alocados ao FFmpeg (evita travamentos do sistema causados ​​pelo uso de 100% da CPU).
+[Padrão: Vazio / Todas as threads]
+
+MAX_ATTEMPTS      : Número de tentativas sequenciais de codificação permitidas por arquivo antes de marcá-lo como uma falha definitiva e passar para o próximo.
+[Padrão: 3]
+
+MAX_TOLERANCE     : Diferença máxima permitida (em segundos), para mais ou para menos, entre o vídeo de origem e o arquivo codificado. Isso compensa pequenas defasagens de carimbo de tempo introduzidas por fluxos de áudio ou contêineres personalizados, sem acionar um ciclo de falha por falso positivo.
+[Padrão: 2]
+
+DRY_RUN           : Simula as alterações, mostrando quantos arquivos seriam convertidos, sem de fato fazer a conversão.
+[Padrão: false]
+
+Exemplo de formato do config.cfg:
+SOURCE_DIR=/home/videos
+DESTINATION_DIR=/home/videos/encode-output
+REPLICATE_SRC_DIR=true
+EXTENSIONS=mp4, mkv, avi
+RESOLUTION_WIDTH=720
+MAX_THREADS=
+MAX_ATTEMPTS=3
+MAX_TOLERANCE=2
+DRY_RUN=false
+
+///////////////////////////////////////
+REGRAS TÉCNICAS E DIRETÓRIOS
+///////////////////////////////////////
+
+Criar a pasta de destino:
+Caso o diretório de destino não exista, ele deve ser criado.
+
+Excluir a pasta de destino da varredura:
+A pasta de destino dos arquivos convertidos, deve ser excluída da varredura de arquivos, para que arquivos ja convertidos não seja processados novamente.
+
+Replicação dos subdiretórios:
+O script de replicar a exata mesma estrutura de sub-diretórios da pasta de origem (excluindo a própria pasta de destino), caso a variável ddo arquivo de cfg seja true, caso contrario, os arquivos devem ser colocados no próprio diretório de destino.
+
+Verificação de arquivos já existentes no destino:
+Antes de um arquivo ser processado, deve-se verificar: se ele ja existe no diretório de destino, caso ele exista, se a resolução do arquivo no destino bate com a resolução alvo, se a duração do video bate com a do video na origem - considerando a tolerância maxima definida na variável MAX_TOLERANCE do cfg. Caso o arquivo já presente no diretório de destino não seja válido, esse arquivo deve ser mantido e o arquivo original deve ser processado, o novo arquivo convertido de ser salvo com um pós-fixo ao final do nome ([nome-do-arquivo]-720p.mkv - interpolar com a resolução alvo: '-[RESOLUTION_WIDTH]p'), caso o arquivo no destino seja valido, o processamento do arquivo original deve ser pulado.
+
+Conflito de nomes de arquivos no diretório de destino:
+Caso um arquivo comm o mesmo já exista no diretório de destino, o novo arquivo convertido de ser salvo com um pós-fixo ao final do nome ('[nome-do-arquivo]-[RESOLUTION_WIDTH]p').
+
+Manter a extensão e faixas de audio e legendas dos arquivos:
+Os arquivos de saída deve manter tanto a extensão dos arquivos originais, quanto as faixas de audio e legendas presentes  no arquivo original.
+
+///////////////////////////////////////
+FLUXO DE EXECUÇÃO DO SCRIPT (PASSO A PASSO)
+///////////////////////////////////////
+
+FASE A: INICIALIZAÇÃO E AMBIENTE
+
+Verifica a existência do "log.txt" (ou cria se nao existir, o log de sessões anteriores nao deve ser limpo).
+
+Verifica se "config.cfg" existe. Se não existir, gera com os valores padrão, registra a criação no log com o caminho do diretório.
+
+Carrega e valida os parâmetros do "config.cfg". Caso alguma flag não existir, adiciona ela no "config.cfg" com o valor padrão, registra a adição no log com o nome da variável em questão.
+
+Valida se o "SOURCE_DIR" informado existe. Se não existir, registra o erro
+no log e interrompe a execução.
+
+Valida se o "DESTINATION_DIR" informado existe. Se não existir, e cria se não existir, registra a criação no log com o caminho do diretório.
+
+================================
+A PARTIR DESSA LINHA O TEXTO É RESIDUAL DE ESPECIFICAÇÕES DE OUTRO SCRIPT - DESCONSIDERAR AS DESCRIÇÕES E USAR SOMENTE COMO EXEMPLO E TEMPLATE
+================================
+
+FASE B: VARREDURA DE ARQUIVOS
+
+Varre recursivamente (pasta raiz e subpastas) o diretório "SOURCE_DIR".
+
+Filtra cada arquivo encontrado:
+
+Se EXTENSIONS estiver definido no CFG, processa apenas arquivos que
+correspondam à lista.
+
+Se EXTENSIONS estiver vazio, processa todos os arquivos.
+
+FASE C: PROCESSAMENTO DOS ARQUIVOS
+Para cada arquivo elegível  executa as seguintes tarefas em ordem estrita:
+
+Passo C1 - Padronização de Caixa:
+Converte o nome do arquivo para letras minúsculas.
+
+Passo C2 - Remoção de Palavras (REMOVE_WORDS):
+Busca e remove do nome do arquivo todas as ocorrências das palavras ou frases
+definidas no CFG (incluindo espaços internos contidos na palavra do CFG).
+
+Passo C3 - Remoção de Caracteres Especiais (REMOVE_SPECIAL):
+Busca e remove do nome do arquivo todos os caracteres especiais a depender da
+definição no CFG (true/false).
+
+Passo C4 - Adição de Zero à Esquerda (ADD_ZERO = true):
+Identifica conjuntos numéricos de 1 único dígito de '1' a '9'.
+Transforma dígitos de 1 a 9 em 01 a 09 (exemplo: "nome 2" vira "nome 02",
+"item1" vira "item01").
+EXCEÇÕES REGULAMENTADAS:
+- O dígito '0' isolado NÃO é alterado.
+- Números de dois ou mais dígitos (ex: "02", "10", "100") NÃO são alterados.
+
+Passo C5 - Limpeza de Espaços Residuais:
+Remove espaços em branco no início (leading) e no final (trailing) do nome.
+Reduz múltiplos espaços consecutivos em um único espaço ("  " vira " ").
+
+Passo C6 - Substituição por Underline (REPLACE_SPACE = true):
+Substitui todos os espaços do nome por underline ("_").
+Reduz múltiplos underlines consecutivos em um único ("__" vira "_").
+
+FASE D: VALIDAÇÃO DE MUTAÇÃO E COLISÃO
+
+Reanexa a extensão original ao novo nome processado.
+
+Comparação de Nome:
+
+Se o NOME NOVO for exatamente IGUAL ao NOME ATUAL:
+Ação: Pula o arquivo (SKIP). Registra no log como [SKIPPED/UNCHANGED].
+
+Checagem de Existência e Colisão:
+
+Se o NOME NOVO já existir no mesmo diretório (outro arquivo com esse nome):
+Ação: Pula o arquivo (SKIP). Registra no log como [SKIP/COLLISION].
+
+FASE E: APLICAÇÃO E REGISTRO (EXECUÇÃO / DRY-RUN)
+
+Se DRY_RUN = true:
+Não altera o arquivo. Exibe na tela e grava no log o resultado simulado:
+[DRY-RUN] "NomeAntigo.mp4" -> "NomeNovo.mp4"
+
+Se DRY_RUN = false:
+Executa a renomeação (comando REN).
+
+Em caso de SUCESSO:
+Registra no log: [SUCCESS] "NomeAntigo.mp4" -> "NomeNovo.mp4"
+
+Em caso de FALHA/ERRO DE SISTEMA:
+Captura o erro, pula para o próximo arquivo e registra no log:
+[ERROR] Failed to rename "NomeAntigo.mp4"
+
+FASE F: FINALIZAÇÃO
+
+Finaliza a varredura de todos os arquivos.
+
+Grava o resumo da sessão no log.txt (Total processados, renomeados, pultados e erros).
+
+Exibe mensagem de conclusão no console e encerra.
+
+REGISTRO DE LOG (LOG.TXT)
+
+O arquivo "log.txt" deve conter marcação de data/hora no início e término da
+sessão, registrando cada ação individual com os seguintes prefixos padronizados e deve ser escrito em inglês. Possíveis eventos:
+
+[NOTICE]           : Eventos de inicialização (ex: criação do config.cfg).
+
+[DRY-RUN]          : Alteração simulada que seria feita no arquivo.
+
+[SUCCESS]          : Arquivo renomeado com sucesso.
+
+[SKIPPED/UNCHANGED]: Arquivo processado, mas não exigiu alterações.
+
+[RENAME/COLLISION] : Arquivo de saída renomeado porque o umm arquivo com o mesmo nome já existe no destino.
+
+[ERROR]            : Falha durante o processo de encode.
+
+[CRITICAL]         : Interrupção por erro de configuração ou diretório inválido.
+
+================================================================================ : Indicador de fim de sessão.
