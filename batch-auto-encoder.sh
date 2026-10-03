@@ -286,8 +286,8 @@ main() {
 
         [ ! -d "$dest_file_dir" ] && mkdir -p "$dest_file_dir"
 
-        local target_file_path="$dest_file_dir/$full_filename"
-        local needs_suffix=0
+        local final_dest_filename="${base_name}-${target_height}p.${ext}"
+        local target_file_path="$dest_file_dir/$final_dest_filename"
         local process_file=1
 
         if [ -f "$target_file_path" ]; then
@@ -311,29 +311,30 @@ main() {
             fi
 
             if [ "$is_valid" -eq 1 ]; then
-                log_skipped_valid "Skipped valid destination file: \"$full_filename\""
+                log_skipped_valid "Skipped valid destination file: \"$final_dest_filename\""
                 total_skipped=$((total_skipped + 1))
                 process_file=0
             else
-                log_notice "Destination file \"$full_filename\" is invalid. Handling invalid file."
+                log_notice "Destination file \"$final_dest_filename\" is invalid. Handling invalid file."
                 if [ "$keep_invalid" = "true" ]; then
-                    local invalid_target="$dest_file_dir/${base_name}-INVALID.$ext"
+                    local invalid_target="$dest_file_dir/${base_name}-${target_height}p-INVALID.$ext"
                     mv "$target_file_path" "$invalid_target"
                     log_notice "Renamed invalid file to: $(basename "$invalid_target")"
                 else
                     rm -f "$target_file_path"
-                    log_notice "Removed invalid destination file: $full_filename"
+                    log_notice "Removed invalid destination file: $final_dest_filename"
                 fi
-                needs_suffix=1
             fi
         fi
 
         if [ "$process_file" -eq 1 ]; then
-            local final_dest_filename="$full_filename"
-            if [ "$needs_suffix" -eq 1 ] || [ -f "$dest_file_dir/$full_filename" ]; then
-                final_dest_filename="${base_name}-${target_height}p.${ext}"
-            fi
             local final_dest_path="$dest_file_dir/$final_dest_filename"
+
+            if [ "$file_path" = "$final_dest_path" ]; then
+                log_error "Source and destination paths are identical for \"$full_filename\". Skipping to prevent data loss."
+                total_errors=$((total_errors + 1))
+                continue
+            fi
 
             if [ "$dry_run" = "true" ]; then
                 log_dry_run "\"$file_path\" -> \"$final_dest_path\" (Target Height: ${target_height}p, Codec: $codec)"
@@ -353,9 +354,9 @@ main() {
                         thread_arg="-threads $max_threads"
                     fi
 
-                    printf "[PROCESSING...] %s\n" $final_dest_filename
+                    printf "[PROCESSING...] %s\n" "$final_dest_filename"
 
-                    if ffmpeg -y -i "$file_path" -vf "$vf_filter" -c:v "$codec" -crf "$crf" $thread_arg -map 0 "$final_dest_path" >/dev/null 2>&1; then
+                    if ffmpeg -y -i "$file_path" -vf "$vf_filter" -c:v "$codec" -crf "$crf" $thread_arg -map 0 "$final_dest_path"; then
                         success=1
                         break
                     else
