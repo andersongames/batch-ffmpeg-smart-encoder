@@ -298,7 +298,8 @@ main() {
 
             local dur_diff=0
             if command -v awk >/dev/null 2>&1; then
-                dur_diff=$(awk -v d1="$dest_duration" -v d2="$src_duration" 'BEGIN { diff = d1 - d2; if (diff < 0) diff = -diff; print diff }')
+                # LC_NUMERIC=C ensures that awk uses a dot instead of a comma.
+                dur_diff=$(LC_NUMERIC=C awk -v d1="$dest_duration" -v d2="$src_duration" 'BEGIN { diff = d1 - d2; if (diff < 0) diff = -diff; print diff }')
             else
                 dur_diff=0
             fi
@@ -351,6 +352,8 @@ main() {
                     if [ -n "$max_threads" ]; then
                         thread_arg="-threads $max_threads"
                     fi
+
+                    printf "[PROCESSING...] %s\n" $final_dest_filename
 
                     if ffmpeg -y -i "$file_path" -vf "$vf_filter" -c:v "$codec" -crf "$crf" $thread_arg -map 0 "$final_dest_path" >/dev/null 2>&1; then
                         success=1
