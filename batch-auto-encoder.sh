@@ -229,6 +229,10 @@ main() {
 
     local total_processed=0 total_success=0 total_skipped=0 total_errors=0
 
+    # Normalize destination path for safe pattern matching in find
+    local clean_dest_dir="${dest_dir#./}"
+    clean_dest_dir="${clean_dest_dir%/}"
+
     while IFS= read -r file_path; do
         [ -z "$file_path" ] && continue
 
@@ -372,7 +376,7 @@ main() {
         fi
 
     done <<EOF
-$(find "$src_dir" -type f ! -path "*/$dest_dir/*" ! -name "$CONFIG_FILE" ! -name "$LOG_FILE")
+$(find "$src_dir" -type f ! -path "./$clean_dest_dir*" ! -path "$clean_dest_dir*" ! -name "$CONFIG_FILE" ! -name "$LOG_FILE")
 EOF
 
     log_notice "Session finished."
