@@ -23,6 +23,7 @@ DEFAULT_MAX_THREADS=""
 DEFAULT_MAX_ATTEMPTS="3"
 DEFAULT_MAX_TOLERANCE="2"
 DEFAULT_KEEP_INVALID_FILES="false"
+DEFAULT_FORCE_ENCODE_LOWER_RES="false"
 DEFAULT_DRY_RUN="false"
 
 ### ------------------------------------------------------------------------------
@@ -83,6 +84,7 @@ MAX_THREADS=$DEFAULT_MAX_THREADS
 MAX_ATTEMPTS=$DEFAULT_MAX_ATTEMPTS
 MAX_TOLERANCE=$DEFAULT_MAX_TOLERANCE
 KEEP_INVALID_FILES=$DEFAULT_KEEP_INVALID_FILES
+FORCE_ENCODE_LOWER_RES=$DEFAULT_FORCE_ENCODE_LOWER_RES
 DRY_RUN=$DEFAULT_DRY_RUN
 EOF
     log_notice "Generated default configuration file: $CONFIG_FILE"
@@ -123,6 +125,7 @@ validate_and_fix_config() {
     ensure_config_key "MAX_ATTEMPTS" "$DEFAULT_MAX_ATTEMPTS"
     ensure_config_key "MAX_TOLERANCE" "$DEFAULT_MAX_TOLERANCE"
     ensure_config_key "KEEP_INVALID_FILES" "$DEFAULT_KEEP_INVALID_FILES"
+    ensure_config_key "FORCE_ENCODE_LOWER_RES" "$DEFAULT_FORCE_ENCODE_LOWER_RES"
     ensure_config_key "DRY_RUN" "$DEFAULT_DRY_RUN"
 }
 
@@ -192,6 +195,7 @@ main() {
     max_attempts=$(get_config_value "MAX_ATTEMPTS")
     max_tolerance=$(get_config_value "MAX_TOLERANCE")
     keep_invalid=$(get_config_value "KEEP_INVALID_FILES")
+    force_lower_res=$(get_config_value "FORCE_ENCODE_LOWER_RES")
     dry_run=$(get_config_value "DRY_RUN")
 
     if [ ! -d "$src_dir" ]; then
@@ -262,15 +266,28 @@ main() {
             continue
         fi
 
-        # Get source resolution height to check if it's lower or equal to target height (e.g. 720p, 1080p)
+        # Get source resolution height
         local src_height
         src_height=$(get_video_resolution_height "$file_path")
 
+        local effective_target_height="$target_height"
+        local vf_filter=""
+
         if [ "$src_height" -gt 0 ] && [ "$src_height" -le "$target_height" ]; then
-            write_log "SKIPPED/LOW-RES" "Skipped file \"$full_filename\": source height (${src_height}p) is less than or equal to target height (${target_height}p)."
-            printf "[SKIPPED/LOW-RES] Skipped file \"%s\": source height (%sp) is <= target height (%sp).\n" "$full_filename" "$src_height" "$target_height"
-            total_skipped=$((total_skipped + 1))
-            continue
+            if [ "$force_lower_res" = "true" ]; then
+                log_notice "File \"$full_filename\" has resolution (${src_height}p) <= target (${target_height}p), but FORCE_ENCODE_LOWER_RES is true. Re-encoding without scaling."
+                # Maintains the original video resolution (no scaling)
+                effective_target_height="$src_height"
+                vf_filter=""
+            else
+                write_log "SKIPPED/LOW-RES" "Skipped file \"$full_filename\": source height (${src_height}p) is less than or equal to target height (${target_height}p)."
+                printf "[SKIPPED/LOW-RES] Skipped file \"%s\": source height (%sp) is <= target height (%sp).\n" "$full_filename" "$src_height" "$target_height"
+                total_skipped=$((total_skipped + 1))
+                continue
+            fi
+        else
+            # Scales down/up to the target height while maintaining the aspect ratio.
+            vf_filter="scale=-2:${target_height}"
         fi
 
         total_processed=$((total_processed + 1))
@@ -286,7 +303,8 @@ main() {
 
         [ ! -d "$dest_file_dir" ] && mkdir -p "$dest_file_dir"
 
-        local final_dest_filename="${base_name}-${target_height}p.${ext}"
+        # Defines the suffix based on the effective height of the generated file.
+        local final_dest_filename="${base_name}-${effective_target_height}p.${ext}"
         local target_file_path="$dest_file_dir/$final_dest_filename"
         local process_file=1
 
@@ -298,15 +316,13 @@ main() {
 
             local dur_diff=0
             if command -v awk >/dev/null 2>&1; then
-                # LC_NUMERIC=C ensures that awk uses a dot instead of a comma.
                 dur_diff=$(LC_NUMERIC=C awk -v d1="$dest_duration" -v d2="$src_duration" 'BEGIN { diff = d1 - d2; if (diff < 0) diff = -diff; print diff }')
             else
                 dur_diff=0
             fi
 
             local is_valid=0
-            # Check validity: resolution height matches target AND duration within tolerance
-            if [ "$dest_height" -eq "$target_height" ] && [ "$(echo "$dur_diff <= $max_tolerance" | bc 2>/dev/null || echo 1)" -eq 1 ]; then
+            if [ "$dest_height" -eq "$effective_target_height" ] && [ "$(echo "$dur_diff <= $max_tolerance" | bc 2>/dev/null || echo 1)" -eq 1 ]; then
                 is_valid=1
             fi
 
@@ -317,7 +333,7 @@ main() {
             else
                 log_notice "Destination file \"$final_dest_filename\" is invalid. Handling invalid file."
                 if [ "$keep_invalid" = "true" ]; then
-                    local invalid_target="$dest_file_dir/${base_name}-${target_height}p-INVALID.$ext"
+                    local invalid_target="$dest_file_dir/${base_name}-${effective_target_height}p-INVALID.$ext"
                     mv "$target_file_path" "$invalid_target"
                     log_notice "Renamed invalid file to: $(basename "$invalid_target")"
                 else
@@ -337,7 +353,7 @@ main() {
             fi
 
             if [ "$dry_run" = "true" ]; then
-                log_dry_run "\"$file_path\" -> \"$final_dest_path\" (Target Height: ${target_height}p, Codec: $codec)"
+                log_dry_run "\"$file_path\" -> \"$final_dest_path\" (Effective Height: ${effective_target_height}p, Codec: $codec)"
                 total_success=$((total_success + 1))
             else
                 check_dependencies
@@ -347,16 +363,20 @@ main() {
                 while [ "$attempt" -le "$max_attempts" ]; do
                     log_notice "Encoding attempt $attempt of $max_attempts for: \"$full_filename\""
                     
-                    # Scale based on target height maintaining aspect ratio (-2 ensures height is divisible by 2 for encoders)
-                    local vf_filter="scale=-2:${target_height}"
                     local thread_arg=""
                     if [ -n "$max_threads" ]; then
                         thread_arg="-threads $max_threads"
                     fi
 
-                    printf "[PROCESSING...] %s\n" "$final_dest_filename"
+                    printf "[PROCESSING...] %s. Do not close the window. Press Ctrl + C to terminate the process.\n" "$final_dest_filename"
 
-                    if ffmpeg -y -i "$file_path" -vf "$vf_filter" -c:v "$codec" -crf "$crf" $thread_arg -map 0 "$final_dest_path"; then
+                    local ffmpeg_cmd="ffmpeg -y -i \"$file_path\""
+                    if [ -n "$vf_filter" ]; then
+                        ffmpeg_cmd="$ffmpeg_cmd -vf \"$vf_filter\""
+                    fi
+                    ffmpeg_cmd="$ffmpeg_cmd -c:v \"$codec\" -crf \"$crf\" $thread_arg -map 0 \"$final_dest_path\""
+
+                    if eval "$ffmpeg_cmd > /dev/null 2>&1"; then
                         success=1
                         break
                     else
