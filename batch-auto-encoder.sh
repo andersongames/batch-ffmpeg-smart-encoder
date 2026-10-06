@@ -403,8 +403,9 @@ main() {
 $(find "$src_dir" -type f ! -path "./$clean_dest_dir*" ! -path "$clean_dest_dir*" ! -name "$CONFIG_FILE" ! -name "$LOG_FILE")
 EOF
 
-    log_notice "Session finished."
     log_notice "Summary -> Total Processed: $total_processed | Success/Simulated: $total_success | Skipped (Valid): $total_skipped | Errors: $total_errors"
+    log_notice "Session finished."
+    printf "================================================================================\n" >> "$LOG_FILE"
     printf "Execution complete. Check %s for details.\n" "$LOG_FILE"
 }
 
