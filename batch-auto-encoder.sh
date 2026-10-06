@@ -381,7 +381,7 @@ main() {
                         break
                     else
                         if [ ! -f "$final_dest_path" ] || [ ! -s "$final_dest_path" ]; then
-                            log_critical "Disk space insufficient or file creation failed for \"$full_filename\". Cleaning up and exiting."
+                            log_error "Disk space insufficient or file creation failed for \"$full_filename\". Cleaning up and exiting."
                         fi
                         rm -f "$final_dest_path"
                         attempt=$((attempt + 1))
