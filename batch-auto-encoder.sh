@@ -376,7 +376,7 @@ main() {
                     fi
                     ffmpeg_cmd="$ffmpeg_cmd -c:v \"$codec\" -crf \"$crf\" $thread_arg -map 0 \"$final_dest_path\""
 
-                    if eval "$ffmpeg_cmd > /dev/null 2>&1"; then
+                    if eval "$ffmpeg_cmd < /dev/null > /dev/null 2>&1"; then
                         success=1
                         break
                     else
