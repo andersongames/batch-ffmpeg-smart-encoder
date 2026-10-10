@@ -1,0 +1,3 @@
+- check and mount drives
+- flag to delete original
+- flag to move skipped to destination directory
